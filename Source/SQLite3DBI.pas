@@ -1,9 +1,20 @@
 {*
- * SQLite for Delphi and FreePascal/Lazarus
+ * SQLite FreePascal/Lazarus
  *
  * This unit contains easy-to-use object wrapper over SQLite3 API functions.
+ * Originally written by Yuri Plashenkov for Delphi and Free Pascal.
+ *
+ * Modified by Pierce Ng to use fcl-db's SQLite FFI definitions. Note that,
+ * with this modification, this unit is now Free Pascal-specific. The rationale
+ * for the modification is to allow tracking fcl-db's updates to SQLite FFI
+ * "for free", i.e., without having to maintain separate FFI in this branch's
+ * now-deleted SQLite3.pas.
+ *
+ * To avoid confusion with existing application code, the modified unit is
+ * renamed SQLite3DBI.
  *
  * Copyright (c) 2013 Yuri Plashenkov
+ * Copyright (c) 2022 Pierce Ng
  *
  * MIT License
  *
@@ -26,7 +37,7 @@
  * SOFTWARE.
  *}
 
-unit SQLite3Wrap;
+unit SQLite3DBI;
 
 {$IFDEF FPC}
   {$MODE DELPHI}
@@ -35,7 +46,7 @@ unit SQLite3Wrap;
 interface
 
 uses
-  SysUtils, Classes, SQLite3;
+  SysUtils, Classes, sqlite3dyn;
 
 type
   ESQLite3Error = class(Exception);
@@ -77,7 +88,7 @@ type
 
   TSQLite3Statement = class(TObject)
   private
-    FHandle: PSQLite3Stmt;
+    FHandle: PSQLite3_Stmt;
     FOwnerDatabase: TSQLite3Database;
     function ParamIndexByName(const ParamName: WideString): Integer;
   public
@@ -114,7 +125,7 @@ type
     function ColumnBlob(const ColumnIndex: Integer): Pointer;
     function ColumnBytes(const ColumnIndex: Integer): Integer;
 
-    property Handle: PSQLite3Stmt read FHandle;
+    property Handle: PSQLite3_Stmt read FHandle;
     property OwnerDatabase: TSQLite3Database read FOwnerDatabase;
   end;
 
@@ -122,7 +133,7 @@ type
 
   TSQLite3BlobHandler = class(TObject)
   private
-    FHandle: PSQLite3Blob;
+    FHandle: PSQLite3_Blob;
     FOwnerDatabase: TSQLite3Database;
   public
     constructor Create(OwnerDatabase: TSQLite3Database; const Table, Column: WideString; const RowID: Int64; const WriteAccess: Boolean = True);
@@ -132,7 +143,7 @@ type
     procedure Read(Buffer: Pointer; const Size, Offset: Integer);
     procedure Write(Buffer: Pointer; const Size, Offset: Integer);
 
-    property Handle: PSQLite3Blob read FHandle;
+    property Handle: PSQLite3_Blob read FHandle;
     property OwnerDatabase: TSQLite3Database read FOwnerDatabase;
   end;
 
@@ -239,9 +250,9 @@ procedure TSQLite3Database.Open(const FileName: WideString; Flags: Integer);
 begin
   Close;
   if Flags = 0 then
-    Check(sqlite3_open(PAnsiChar(StrToUTF8(FileName)), FHandle))
+    Check(sqlite3_open(PAnsiChar(StrToUTF8(FileName)), @FHandle))
   else
-    Check(sqlite3_open_v2(PAnsiChar(StrToUTF8(FileName)), FHandle, Flags, nil));
+  Check(sqlite3_open_v2(PAnsiChar(StrToUTF8(FileName)), @FHandle, Flags, nil));
 end;
 
 function TSQLite3Database.Prepare(const SQL: WideString): TSQLite3Statement;
@@ -365,7 +376,7 @@ begin
   FOwnerDatabase := OwnerDatabase;
   FOwnerDatabase.CheckHandle;
   FOwnerDatabase.Check(
-    sqlite3_prepare_v2(FOwnerDatabase.Handle, PAnsiChar(StrToUTF8(SQL)), -1, FHandle, nil)
+    sqlite3_prepare_v2(FOwnerDatabase.Handle, PAnsiChar(StrToUTF8(SQL)), -1, @FHandle, nil)
   );
   FOwnerDatabase.FStatementList.Add(Self);
 end;
@@ -452,7 +463,7 @@ begin
   FOwnerDatabase.CheckHandle;
   FOwnerDatabase.Check(
     sqlite3_blob_open(FOwnerDatabase.FHandle, 'main', PAnsiChar(StrToUTF8(Table)),
-      PAnsiChar(StrToUTF8(Column)), RowID, Ord(WriteAccess), FHandle)
+      PAnsiChar(StrToUTF8(Column)), RowID, Ord(WriteAccess), @FHandle)
   );
   FOwnerDatabase.FBlobHandlerList.Add(Self);
 end;
@@ -474,6 +485,16 @@ procedure TSQLite3BlobHandler.Write(Buffer: Pointer; const Size,
   Offset: Integer);
 begin
   FOwnerDatabase.Check(sqlite3_blob_write(FHandle, Buffer, Size, Offset));
+end;
+
+initialization
+begin
+  InitializeSQLite;
+end;
+
+finalization
+begin
+  ReleaseSQLite;
 end;
 
 end.
